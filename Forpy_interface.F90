@@ -1,8 +1,5 @@
 module Forpy_interface
 
-use MOM_grid,                  only : ocean_grid_type
-use MOM_verticalGrid,          only : verticalGrid_type
-use MOM_domains,               only : pass_var
 use MOM_coms,                  only : PE_here,num_PEs
 use forpy_mod,                 only : module_py,list,ndarray,object,tuple
 use forpy_mod,                 only : err_print
@@ -11,8 +8,6 @@ use forpy_mod,                 only : ndarray_create,tuple_create,call_py,cast
 use forpy_mod,                 only : forpy_finalize
 
 implicit none; private
-
-#include <MOM_memory.h>
 
 public :: forpy_run_python_init,forpy_run_python,forpy_run_python_finalize
 
@@ -43,59 +38,52 @@ subroutine forpy_run_python_init(CS,python_dir,python_file)
 end subroutine forpy_run_python_init
 
 !> !> Send variables to a python script and output the results
-subroutine forpy_run_python(WH_u, WH_v, Sx, Sy, G, GV, CS, wh_size_in, BT)
-    type(ocean_grid_type),         intent(in)  :: G      !< The ocean's grid structure.
-    type(verticalGrid_type),       intent(in)  :: GV     !< The ocean's vertical grid structure.
+subroutine forpy_run_python(in1, in2, out1, out2, CS, TopLayer)
     type(python_interface),        intent(in)  :: CS     !< Python interface object
   ! Local Variables
-    integer, intent(in) :: wh_size_in(4)  ! Subdomain size with wide halos for input
-    logical, intent(in) :: BT             !< If true, momentum forcing from CNN is barotropic.
-    real, dimension(wh_size_in(1):wh_size_in(2),&
-                    wh_size_in(3):wh_size_in(4),&
-                    SZK_(GV)), &
-                                    intent(in) :: WH_u     ! The zonal velocity with a wide halo [L T-1 ~> m s-1].
-    real, dimension(wh_size_in(1):wh_size_in(2),&
-                    wh_size_in(3):wh_size_in(4),&
-                    SZK_(GV)), &
-                                    intent(in) :: WH_v     ! The meridional velocity with a wide halo [L T-1 ~> m s-1].
-    real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                                    intent(out) :: Sx      ! CNN output Sx
-    real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
-                                    intent(out) :: Sy      ! CNN output Sy
+    logical, intent(in) :: TopLayer             !< If true, only top layer is used.
+    real, dimension(:,:,:), &
+                                    intent(in) :: in1     ! First input variable.
+    real, dimension(:,:,:), &
+                                    intent(in) :: in2     ! second input variable.
+    real, dimension(:,:,:), &
+                                    intent(inout) :: out1      ! First output variable.
+    real, dimension(:,:,:), &
+                                    intent(inout) :: out2      ! second output variable.
   ! Local Variables for Forpy
     integer :: ierror ! return code from python interfaces
-    type(ndarray) :: u_py,v_py,out_arr      !< u and v in the form of numpy array
+    type(ndarray) :: in1_py,in2_py,out_arr      !< first and second variables in the form of numpy array
     type(object)  :: obj                    !< return objects
     type(tuple)   :: args                   !< input arguments for the Python module
     real, dimension(:,:,:,:), pointer :: out_for  !< outputs from Python module
     integer :: current_pe
+    integer :: hi, hj ! temporary
     integer :: i, j, k
-    integer :: is, ie, js, je, nz, nztemp
+    integer :: nztemp
 
     current_pe = PE_here()
 
-    is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke
-    if (BT) then
+    if (TopLayer) then
       nztemp = 1
     else
-      nztemp = nz
+      nztemp = size(in1,3)
     endif
 
   ! Covert input into Forpy Numpy Arrays 
-    if (BT) then
-        ierror = ndarray_create(u_py, WH_u(:,:,1))
-        ierror = ndarray_create(v_py, WH_v(:,:,1))
+    if (TopLayer) then
+        ierror = ndarray_create(in1_py, in1(:,:,1))
+        ierror = ndarray_create(in2_py, in2(:,:,1))
       else
-        ierror = ndarray_create(u_py, WH_u)
-        ierror = ndarray_create(v_py, WH_v)
+        ierror = ndarray_create(in1_py, in1)
+        ierror = ndarray_create(in2_py, in2)
       endif
       if (ierror/=0) then; call err_print; endif
     
       ! Create Python Argument 
       ierror = tuple_create(args,4)
       if (ierror/=0) then; call err_print; endif
-      ierror = args%setitem(0,u_py)
-      ierror = args%setitem(1,v_py)
+      ierror = args%setitem(0,in1_py)
+      ierror = args%setitem(1,in2_py)
       ierror = args%setitem(2,current_pe)
       ierror = args%setitem(3,num_PEs())
       if (ierror/=0) then; call err_print; endif
@@ -109,24 +97,26 @@ subroutine forpy_run_python(WH_u, WH_v, Sx, Sy, G, GV, CS, wh_size_in, BT)
       if (ierror/=0) then; call err_print; endif
     
       ! Destroy Objects
-      call u_py%destroy
-      call v_py%destroy
+      call in1_py%destroy
+      call in2_py%destroy
       call out_arr%destroy
       call obj%destroy
       call args%destroy
+
+      ! find the margin size (if order='C')
+      hi = (size(out1,1) - size(out_for,3))/2
+      hj = (size(out1,2) - size(out_for,2))/2
     
       ! Output (out_for in C order has index (nk,nj,ni))
                       ! in F order has index (ni,nj,nk)
-      Sx = 0.0; Sy = 0.0;
+      out1 = 0.0; out2 = 0.0;
       do k=1,nztemp
-        do j=js,je ; do i=is,ie
-          Sx(i,j,k) = out_for(k,j-js+1,i-is+1,1) ! if order='C'
-          ! Sx(i,j,k) = out_for(1,i-is+1,j-js+1,k) ! if order='F'
-          Sy(i,j,k) = out_for(k,j-js+1,i-is+1,2)
+        do j=1,size(out_for,2) ; do i=1,size(out_for,3)
+          out1(i+hi,j+hj,k) = out_for(k,j,i,1) ! if order='C'
+          ! out1(i+hi,j+hj,k) = out_for(1,i,j,k) ! if order='F'
+          out2(i+hi,j+hj,k) = out_for(k,j,i,2)
         enddo ; enddo
       enddo
-      call pass_var(Sx, G%domain)
-      call pass_var(Sy, G%domain)
   
 end subroutine forpy_run_python 
 
