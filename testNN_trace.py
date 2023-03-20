@@ -63,35 +63,44 @@ def load_paper_net(device: str = 'gpu'):
     return net
 nn = load_paper_net('cpu')
 nn.eval()
+example_input = torch.rand(2, 2, 21, 21)
+nn=nn.cuda(0)
+example_input=example_input.cuda(0)
+module = torch.jit.trace(nn, example_input)
+torch.jit.save(module, 'CNN_GPU.pt')
+print(module.graph)
 
 def MOM6_testNN(uv,pe,pe_num,index): 
-   global nn,gpu_id
+   global module,gpu_id
    # start_time = time.time()
    # print('PE number is',pe_num)
    # print('PE is',pe)
-   # print('size of uv',uv.shape)
+#    print('size of uv',uv.shape)
    #normalize the input by 10
    u = uv[0,:,:,:]*10.0
    v = uv[1,:,:,:]*10.0
-   x = np.array([np.squeeze(u),np.squeeze(v)])
-   if x.ndim==3:
-     x = x[:,:,:,np.newaxis]
-   x = x.astype(np.float32)
-   x = x.transpose((3,0,1,2)) # new the shape is (nk,2,ni,nj)
-   x = torch.from_numpy(x) # quite faster than x = torch.tensor(x)
+#    x = torch.tensor([u,v])
+   x = torch.tensor(np.array([u,v]))
+#    print('size of x',x.shape)
+   x = x.to(torch.float32)
+   x = x.transpose(0,3).transpose(1,3).transpose(2,3) # new the shape is (nk,2,ni,nj)
+#    print('size of x',x.shape)
    if use_cuda:
-       if not next(nn.parameters()).is_cuda:
+       if not next(module.parameters()).is_cuda:
           gpu_id = int(pe/math.ceil(pe_num/torch.cuda.device_count()))
           print('GPU id is:',gpu_id)
-          nn = nn.cuda(gpu_id)
+          module = module.cuda(gpu_id)
        x = x.cuda(gpu_id)
    with torch.no_grad():
        # start_time = time.time()
-       out = nn(x)
+       print(x.shape)
+       out = module(x)
        # end_time = time.time()
    if use_cuda:
        out = out.to('cpu')
-   out = out.numpy().astype(np.float64)
+   out = out.to(torch.float64)
+#    out = out.numpy().astype(np.float64)
+#    print('size of out',out.shape)
    # At this point, python out shape is (nk,4,ni,nj)
    # Comment-out is tranferring arraies into F order
    """
@@ -101,14 +110,23 @@ def MOM6_testNN(uv,pe,pe_num,index):
    out = out.reshape(dim[0],dim[1],dim[2],dim[3], order='F')
    """
    # convert out to (ni,nj,nk)
-   out = out.transpose((1,2,3,0)) # new the shape is (4,ni,nj,nk)
-   dim = np.shape(out)
-   # print(dim)
-   Sxy = np.zeros((6,dim[1],dim[2],dim[3])) # the shape is (6,ni,nj,nk)
-   epsilon_x = np.random.normal(0, 1, size=(dim[1],dim[2]))
-   epsilon_x = np.dstack([epsilon_x]*dim[3])
-   epsilon_y = np.random.normal(0, 1, size=(dim[1],dim[2]))
-   epsilon_y = np.dstack([epsilon_y]*dim[3])
+   out = out.transpose(2,3).transpose(1,3).transpose(0,3)
+#    out = out.transpose((1,2,3,0)) # new the shape is (4,ni,nj,nk)
+#    print('size of out',out.shape)
+   dim = out.shape
+   Sxy = torch.zeros((6,dim[1],dim[2],dim[3])) # the shape is (6,ni,nj,nk)
+   epsilon_x = torch.normal(0, 1, size=(dim[1],dim[2]))
+#    print('size of epsilon_x',epsilon_x.shape)
+   epsilon_x = torch.dstack([epsilon_x]*dim[3])
+#    print('size of epsilon_x',epsilon_x.shape)
+   epsilon_y = torch.normal(0, 1, size=(dim[1],dim[2]))
+   epsilon_y = torch.dstack([epsilon_y]*dim[3])
+
+   epsilon_x = torch.normal(torch.zeros(dim[1],dim[2]),torch.ones(dim[1],dim[2]))
+   epsilon_x = torch.dstack([epsilon_x]*dim[3])
+   epsilon_y = torch.normal(torch.zeros(dim[1],dim[2]),torch.ones(dim[1],dim[2]))
+   epsilon_y = torch.dstack([epsilon_y]*dim[3])
+
    scaling = 1e-7
    # if pe==0:
    #   print(scaling)
@@ -141,26 +159,12 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # end_time = time.time()
    # print("--- %s seconds for CNN ---" % (end_time - start_time))
    # print(nn)
-   # print(Sxy.shape)
+#    print('size of epsilon_x',Sxy.shape)
+#    Sxy = Sxy.tolist()
+   Sxy = Sxy.numpy().astype(np.float64)
    return Sxy
 
-# if __name__ == '__main__':
-#   start_time = time.time()
-#   x = np.arange(1, 1251).astype(np.float32)
-#   x = x / 100
-#   print(x[:10])
-#   x = x.reshape((1, 2, 25, 25), order='F')
-#   x = torch.tensor(x)
-#   if use_cuda:
-#       x = x.to(device)
-#   with torch.no_grad():
-#       out = nn(x)
-#   if use_cuda:
-#       out = out.to('cpu')
-#   out = out.numpy()
-#   out = out.flatten(order='F')
-#   print("BEGINNING OF PYTHON")
-#   print(out[:10])
-#   print("END OF PYTHON")
-#   end_time = time.time()
-#   print("time elapse with", device, "is", end_time-start_time, "s")
+gpu_id=0
+uv = np.random.rand(2, 40, 40, 4)
+Sxy=MOM6_testNN(uv,1,1,1)
+print(Sxy.shape)

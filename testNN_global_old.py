@@ -15,14 +15,18 @@ if use_cuda:
 else:
     print('device for inference on CPU')
 
-nn_load_file='/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/global_model.pt'
+nn_load_file='/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/best-model'
 filters=[5, 5, 3, 3, 3, 3, 3, 3]
 widths=[128, 64, 32, 32, 32, 32, 32, 4]
 
-u_scale = 1/0.09439346225350978
-v_scale = 1/0.07252696573672539
-Su_scale = 4.9041400042653195e-08
-Sv_scale = 4.8550991806254025e-08
+u_scale=1/0.10278768092393875
+v_scale=1/0.07726840674877167
+world_radius_in_meters=6.371e6
+angle_to_meters=world_radius_in_meters*2*np.pi/360
+Su_scale=0.004745704121887684/angle_to_meters
+Sv_scale=0.004386111628264189/angle_to_meters
+# print('suscale',Su_scale)
+# print('svscale',Sv_scale)
 
 #load the neural network
 class CNN(nn.Module):
@@ -61,20 +65,6 @@ nn=CNN(cuda_flag=False)
 nn.load_state_dict(torch.load(nn_load_file,map_location='cpu'))
 nn.eval()
 
-# example_forward_input = torch.ones((1,2,42,40))
-# second_example_input = torch.ones((4,2,42,40))
-
-# module = torch.jit.trace(nn, example_forward_input)
-
-# onn=nn(second_example_input).detach().numpy()
-# jittrace=module(second_example_input).detach().numpy()
-
-# np.savetxt('Sx_mean_up_nn1.txt',onn[0,0,:,:])
-# np.savetxt('Sx_mean_up_md1.txt',jittrace[0,0,:,:])
-# np.savetxt('Sx_std_up_nn1.txt',onn[0,2,:,:])
-# np.savetxt('Sx_std_up_md1.txt',jittrace[0,2,:,:])
-
-
 def MOM6_testNN(uv,pe,pe_num,index):
    global nn,gpu_id,u_scale,v_scale,Su_scale,Sv_scale
    # start_time = time.time()
@@ -82,8 +72,8 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # print('PE is',pe)
    # print(u.shape,v.shape)
    #normalize the input by training scaling
-   u= uv[0,:,:,:]*u_scale
-   v= uv[1,:,:,:]*v_scale
+   u=uv[0,:,:,:]*u_scale
+   v=uv[1,:,:,:]*v_scale
    x = np.array([np.squeeze(u),np.squeeze(v)])
    if x.ndim==3:
      x = x[:,:,:,np.newaxis]
@@ -133,8 +123,6 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # full output
    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x*np.sqrt(1/out[2,:,:,:]))*Su_scale
    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y*np.sqrt(1/out[3,:,:,:]))*Sv_scale
-#    Sxy[0,:,:,:] = out[0,:,:,:]*Su_scale
-#    Sxy[1,:,:,:] = out[1,:,:,:]*Sv_scale
    Sxy[2,:,:,:] = out[0,:,:,:]*Su_scale
    Sxy[3,:,:,:] = out[1,:,:,:]*Sv_scale
    Sxy[4,:,:,:] = np.sqrt(1/out[2,:,:,:])*Su_scale
@@ -145,15 +133,11 @@ def MOM6_testNN(uv,pe,pe_num,index):
    Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
    """
 
-#    np.savetxt('u.txt',uv[0,:,:,0])
-#    np.savetxt('v.txt',uv[1,:,:,0])
-#    np.savetxt('Sx_mean.txt',Sxy[2,:,:,0])
-#    np.savetxt('Sx_std.txt',Sxy[4,:,:,0])
-
+   np.savetxt('Sx_mean.txt',Sxy[2,:,:,0])
+   np.savetxt('Sx_std.txt',Sxy[4,:,:,0])
+   exit()
    # end_time = time.time()
    # print("--- %s seconds for CNN ---" % (end_time - start_time))
    # print(nn)
    # print(Sxy.shape)
-
-#    exit()
    return Sxy 

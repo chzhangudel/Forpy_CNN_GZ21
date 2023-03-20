@@ -1,11 +1,13 @@
 module Forpy_interface
 
 use MOM_coms,                  only : PE_here,num_PEs
+use MOM_error_handler,         only : is_root_pe
 use forpy_mod,                 only : module_py,list,ndarray,object,tuple
 use forpy_mod,                 only : err_print
 use forpy_mod,                 only : forpy_initialize,get_sys_path,import_py,print_py
 use forpy_mod,                 only : ndarray_create,tuple_create,call_py,cast
 use forpy_mod,                 only : forpy_finalize
+use MOM_grid,                  only : ocean_grid_type
 
 implicit none; private
 
@@ -38,8 +40,9 @@ subroutine forpy_run_python_init(CS,python_dir,python_file)
 end subroutine forpy_run_python_init
 
 !> !> Send variables to a python script and output the results
-subroutine forpy_run_python(in1, out1, CS, TopLayer)
+subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     type(python_interface),        intent(in)  :: CS     !< Python interface object
+    type(ocean_grid_type),         intent(in)    :: G     !< The ocean's grid structure.
   ! Local Variables
     logical, intent(in) :: TopLayer             !< If true, only top layer is used.
     real, dimension(:,:,:,:), &
@@ -48,7 +51,7 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer)
                                     intent(inout) :: out1      ! output variables.
   ! Local Variables for Forpy
     integer :: ierror ! return code from python interfaces
-    type(ndarray) :: in1_py,out_arr         !< variables in the form of numpy array
+    type(ndarray) :: in1_py,id_py,out_arr   !< variables in the form of numpy array
     type(object)  :: obj                    !< return objects
     type(tuple)   :: args                   !< input arguments for the Python module
     real, dimension(:,:,:,:), pointer :: out_for  !< outputs from Python module
@@ -56,6 +59,15 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer)
     integer :: hi, hj ! temporary
     integer :: i, j, k, l
     integer :: nztemp, out_num
+    integer :: index_global(4) ! absolute begin and end index in the subdomain
+
+    CHARACTER(LEN=80)::FILE_NAME='FP'
+    CHARACTER(LEN=80)::TMP_NAME=' '
+
+    index_global(1) = G%isc+G%idg_offset
+    index_global(2) = G%iec+G%idg_offset
+    index_global(3) = G%jsc+G%jdg_offset
+    index_global(4) = G%jec+G%jdg_offset
 
     current_pe = PE_here()
 
@@ -67,48 +79,83 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer)
 
   ! Covert input into Forpy Numpy Arrays 
     if (TopLayer) then
-        ierror = ndarray_create(in1_py, in1(:,:,:,1))
-      else
-        ierror = ndarray_create(in1_py, in1)
-      endif
-      if (ierror/=0) then; call err_print; endif
+      ierror = ndarray_create(in1_py, in1(:,:,:,1))
+    else
+      ierror = ndarray_create(in1_py, in1)
+    endif
+    if (ierror/=0) then; call err_print; endif
+    ierror = ndarray_create(id_py,index_global)
+    if (ierror/=0) then; call err_print; endif
     
-      ! Create Python Argument 
-      ierror = tuple_create(args,3)
-      if (ierror/=0) then; call err_print; endif
-      ierror = args%setitem(0,in1_py)
-      ierror = args%setitem(1,current_pe)
-      ierror = args%setitem(2,num_PEs())
-      if (ierror/=0) then; call err_print; endif
+  ! Create Python Argument 
+    ierror = tuple_create(args,4)
+    if (ierror/=0) then; call err_print; endif
+    ierror = args%setitem(0,in1_py)
+    ierror = args%setitem(1,current_pe)
+    ierror = args%setitem(2,num_PEs())
+    ierror = args%setitem(3,id_py)
+    if (ierror/=0) then; call err_print; endif
     
-      ! Invoke Python 
-      ierror = call_py(obj, CS%pymodule, "MOM6_testNN", args)
-      if (ierror/=0) then; call err_print; endif
-      ierror = cast(out_arr, obj)
-      if (ierror/=0) then; call err_print; endif
-      ierror = out_arr%get_data(out_for, order='C')
-      if (ierror/=0) then; call err_print; endif
+  ! Invoke Python 
+    ierror = call_py(obj, CS%pymodule, "MOM6_testNN", args)
+    if (ierror/=0) then; call err_print; endif
+    ierror = cast(out_arr, obj)
+    if (ierror/=0) then; call err_print; endif
+    ierror = out_arr%get_data(out_for, order='C')
+    if (ierror/=0) then; call err_print; endif
     
-      ! Destroy Objects
-      call in1_py%destroy
-      call out_arr%destroy
-      call obj%destroy
-      call args%destroy
+  ! Destroy Objects
+    call in1_py%destroy
+    call out_arr%destroy
+    call obj%destroy
+    call args%destroy
 
-      ! find the margin size (if order='C')
-      hi = (size(out1,2) - size(out_for,3))/2
-      hj = (size(out1,3) - size(out_for,2))/2
+  ! find the margin size (if order='C')
+    hi = (size(out1,2) - size(out_for,3))/2
+    hj = (size(out1,3) - size(out_for,2))/2
     
-      ! Output (out_for in C order has index (nk,nj,ni))
-                      ! in F order has index (ni,nj,nk)
-      out1 = 0.0
-      do k=1,nztemp
-        do j=1,size(out_for,2) ; do i=1,size(out_for,3); do l=1,size(out_for,4)
-          out1(l,i+hi,j+hj,k) = out_for(k,j,i,l) ! if order='C'
-          ! out1(l,i+hi,j+hj,k) = out_for(l,i,j,k) ! if order='F'
-        enddo ; enddo ; enddo
-      enddo
+  ! Output (out_for in C order has index (nk,nj,ni))
+                  ! in F order has index (ni,nj,nk)
+    out1 = 0.0
+    do k=1,nztemp
+      do j=1,size(out_for,2) ; do i=1,size(out_for,3); do l=1,size(out_for,4)
+        out1(l,i+hi,j+hj,k) = out_for(k,j,i,l) ! if order='C'
+        ! out1(l,i+hi,j+hj,k) = out_for(l,i,j,k) ! if order='F'
+      enddo ; enddo ; enddo
+    enddo
   
+    ! if (is_root_pe()) then
+    !   TMP_NAME = 'out_for_Sxm_'//TRIM(FILE_NAME)
+    !   open(10,file=TMP_NAME)
+    !   do j=1,size(out_for,2) 
+    !     write(10,100) (out_for(1,j,i,3),i=1,size(out_for,3))
+    !   enddo 
+    !   close(10)
+
+    !   TMP_NAME = 'out_for_Sym_'//TRIM(FILE_NAME)
+    !   open(10,file=TMP_NAME)
+    !   do j=1,size(out_for,2) 
+    !     write(10,100) (out_for(1,j,i,4),i=1,size(out_for,3))
+    !   enddo 
+    !   close(10)
+
+    !   TMP_NAME = 'out_for_Sxd_'//TRIM(FILE_NAME)
+    !   open(10,file=TMP_NAME)
+    !   do j=1,size(out_for,2) 
+    !     write(10,100) (out_for(1,j,i,5),i=1,size(out_for,3))
+    !   enddo 
+    !   close(10)
+
+    !   TMP_NAME = 'out_for_Syd_'//TRIM(FILE_NAME)
+    !   open(10,file=TMP_NAME)
+    !   do j=1,size(out_for,2) 
+    !     write(10,100) (out_for(1,j,i,6),i=1,size(out_for,3))
+    !   enddo 
+    !   close(10)
+    !   100 FORMAT(5000es15.4)
+    ! endif
+    ! stop'debugging!'
+
 end subroutine forpy_run_python 
 
 !> Finalize Forpy
