@@ -17,10 +17,11 @@ def main():
 
     db_cpus = [4,8,16,32,64]
     mom6_cpus = [4,8,16,32,64]
+    refines = [3,9] #Refinement relative to 1/4-degree, e.g. '3' refers to a 1/12-degree model
 
-    combinations = itertools.product(db_cpus, mom6_cpus)
+    combinations = itertools.product(db_cpus, mom6_cpus, refines)
 
-    for db_cpu, mom6_cpu, in combinations:
+    for db_cpu, mom6_cpu, refine in combinations:
         logging.info(f'Starting: db_cpu={db_cpu}\tmom6_cpu={mom6_cpu}')
         start_time = time.time()
 
@@ -35,10 +36,14 @@ def main():
         srun.set_tasks(mom6_cpu)
         # start MOM6
         model = exp.create_model("MOM6_run", srun)
+        model.params = {
+            'nx':44*refine,
+            'ny':40*refine,
+            }
         model.colocate_db_uds(limit_app_cpus=True, db_cpus=db_cpu, debug=True)
 
         files = glob.glob('/scratch/gpfs/aeshao/dev/MOM6-examples/ocean_only/double_gyre/*')
-        model.attach_generator_files(to_copy=files)
+        model.attach_generator_files(to_copy=files, to_configure='./MOM_override')
         exp.generate(model, overwrite=True)
         exp.start(model, summary=True, block=True)
 
@@ -48,6 +53,7 @@ def main():
         tmp_df = parse_mom6_out()
         tmp_df['db_cpu'] = db_cpu
         tmp_df['mom6_cpu'] = mom6_cpu
+        tmp_df['refine'] = refine
 
         timing_dfs.append(tmp_df)
         shutil.rmtree('MOM6_run_exp')

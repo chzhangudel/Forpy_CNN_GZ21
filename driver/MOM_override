@@ -1,0 +1,6 @@
+#override NIGLOBAL=;nx;
+#override NJGLOBAL=;ny;
+
+! Note if the resolution gets too high, these might need to be adjusted
+#override DT=900.
+#override DT_THERM=1200.
