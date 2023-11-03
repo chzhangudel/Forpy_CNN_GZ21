@@ -111,6 +111,30 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     call args%destroy
 
   ! find the margin size (if order='C')
+    ! if (is_root_pe()) then
+
+    !   write(*,*) "low bound of in1 in i is ", lbound(in1,2), "; up bound of in1 in i is ", ubound(in1,2)
+    !   write(*,*) "low bound of out1 in i is ", lbound(out1,2), "; up bound of out1 in i is ", ubound(out1,2)
+    !   write(*,*) "low bound of outfor in i is ", lbound(out_for,3), "; up bound of outfor in i is ", ubound(out_for,3)
+
+    !   open(10,file='in1_root')
+    !   do j=1,size(in1,3) 
+    !     write(10,100) (in1(1,i,j,1),i=1,size(in1,2))
+    !   enddo 
+    !   close(10)
+    ! endif
+
+    ! if (PE_here()==8) then 
+
+    !   open(10,file='in1_PE8')
+    !   do j=1,size(in1,3) 
+    !     write(10,100) (in1(1,i,j,1),i=1,size(in1,2))
+    !   enddo 
+    !   close(10)
+    ! endif
+
+    ! 100 FORMAT(5000es15.4)
+
     hi = (size(out1,2) - size(out_for,3))/2
     hj = (size(out1,3) - size(out_for,2))/2
     
@@ -123,6 +147,24 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
         ! out1(l,i+hi,j+hj,k) = out_for(l,i,j,k) ! if order='F'
       enddo ; enddo ; enddo
     enddo
+
+    ! if (is_root_pe()) then
+
+    !   open(10,file='out1_root')
+    !   do j=1,size(out1,3) 
+    !     write(10,100) (out1(1,i,j,1),i=1,size(out1,2))
+    !   enddo 
+    !   close(10)
+    ! endif
+
+    ! if (PE_here()==8) then 
+
+    !   open(10,file='out1_PE8')
+    !   do j=1,size(out1,3) 
+    !     write(10,100) (out1(1,i,j,1),i=1,size(out1,2))
+    !   enddo 
+    !   close(10)
+    ! endif
   
     ! if (is_root_pe()) then
     !   TMP_NAME = 'out_for_Sxm_'//TRIM(FILE_NAME)

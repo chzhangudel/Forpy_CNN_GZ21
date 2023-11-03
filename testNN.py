@@ -37,7 +37,7 @@ def load_paper_net(device: str = 'gpu'):
     net = model_cls(2, 4)
     print('After net')
     if device == 'cpu':
-        transformation = torch.load('/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation.pth')
+        transformation = torch.load('/scratch/gpfs/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation.pth')
         print('After torch.load()')
     else:
         transformation = pickle_artifact(MODEL_RUN_ID, 'models/transformation')
@@ -51,11 +51,11 @@ def load_paper_net(device: str = 'gpu'):
     print('After mlflow.tracking.MlflowClient()')
 #    model_file = client.download_artifacts(MODEL_RUN_ID,
 #                                           'nn_weights_cpu.pth')
-    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model.pth'
+    model_file = '/scratch/gpfs/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model.pth'
     print('After download_artifacts()')
     if device == 'cpu':
         print('Device: CPU')
-        model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/nn_weights_cpu.pth'
+        model_file = '/scratch/gpfs/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/nn_weights_cpu.pth'
         net.load_state_dict(torch.load(model_file, map_location=torch.device('cpu')))
     else:
         net.load_state_dict(torch.load(model_file))
@@ -71,6 +71,21 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # print('PE is',pe)
    # print('size of uv',uv.shape)
    #normalize the input by 10
+#    uv[0,10:-10,10:-10,:] = pe
+#    uv[1,10:-10,10:-10,:] = pe+100
+#    for j in range(4):
+#       for i in range(4):
+#           start_row = i * 22 + 10
+#           start_col = j * 20 + 10
+#           value = i + j * 4
+#           uv[0,start_row:start_row+22, start_col:start_col+20,:] = value
+#           uv[1,start_row:start_row+22, start_col:start_col+20,:] = value+100
+#    if pe==0:
+#      np.savetxt('u_pe0.txt',uv[0,:,:,0])
+#      np.savetxt('v_pe0.txt',uv[1,:,:,0])
+#    if pe==5:
+#      np.savetxt('u_pe5.txt',uv[0,:,:,0])
+#      np.savetxt('v_pe5.txt',uv[1,:,:,0])
    u = uv[0,:,:,:]*10.0
    v = uv[1,:,:,:]*10.0
    x = np.array([np.squeeze(u),np.squeeze(v)])
@@ -121,8 +136,10 @@ def MOM6_testNN(uv,pe,pe_num,index):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+   Sxy[0,:,:,:] = (out[0,:,:,:])*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:])*scaling
    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
@@ -138,6 +155,10 @@ def MOM6_testNN(uv,pe,pe_num,index):
    np.savetxt('WH_u.txt',u[:,:,1])
    np.savetxt('Sx.txt',Sxy[0,:,:,0])
    """
+#    if pe==0:
+#      np.savetxt('Sx_pe0.txt',out[0,:,:,0])
+#    if pe==5:  
+#      np.savetxt('Sx_pe5.txt',out[0,:,:,0])
    # end_time = time.time()
    # print("--- %s seconds for CNN ---" % (end_time - start_time))
    # print(nn)
@@ -164,3 +185,36 @@ def MOM6_testNN(uv,pe,pe_num,index):
 #   print("END OF PYTHON")
 #   end_time = time.time()
 #   print("time elapse with", device, "is", end_time-start_time, "s")
+  
+#   tensor = torch.zeros(80, 88)
+#   for i in range(4):
+#       for j in range(4):
+#           start_row = i * 20
+#           start_col = j * 22
+#           value = i * 4 + j 
+#           tensor[start_row:start_row+20, start_col:start_col+22] = value
+#   print(tensor.shape)
+# #   np.savetxt('tensor.txt',tensor)
+#   u = torch.zeros(100, 108)
+#   v = torch.zeros(100, 108)
+#   u[10:90, 10:92] = tensor
+#   v[10:90, 10:92] = tensor+100
+#   x = torch.zeros(1,2, 100, 100)
+#   x[0,0,:,:]=u*10
+#   x[0,1,:,:]=v*10
+#   print(x.shape)
+#   out = nn(x)
+#   out = out.detach().numpy().astype(np.float64)
+#   out = out.transpose((1,2,3,0)) # new the shape is (4,ni,nj,nk)
+#   dim = np.shape(out)
+#   print(dim)
+#   Sxy = np.zeros((6,dim[1],dim[2],dim[3])) # the shape is (6,ni,nj,nk)
+#   epsilon_x = np.random.normal(0, 1, size=(dim[1],dim[2]))
+#   epsilon_x = np.dstack([epsilon_x]*dim[3])
+#   epsilon_y = np.random.normal(0, 1, size=(dim[1],dim[2]))
+#   epsilon_y = np.dstack([epsilon_y]*dim[3])
+#   scaling = 1e-7
+#   Sxy[0,:,:,:] = (out[0,:,:,:])*scaling
+#   Sxy[1,:,:,:] = (out[1,:,:,:])*scaling
+#   np.savetxt('Sx_mean.txt',Sxy[0,:,:,0])
+#   np.savetxt('Sy_mean.txt',Sxy[1,:,:,0])
