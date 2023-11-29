@@ -36,6 +36,8 @@ type, public :: smartsim_python_interface ; private
 
 end type
 
+character(len=255) :: ML_PATH='/scratch/gpfs/aeshao/dev/Forpy_CNN_GZ21/'
+
 contains
 
 !> Initialize SmartSim with specify Python script and directory
@@ -67,19 +69,16 @@ subroutine smartsim_run_python_init(CS,python_dir,python_file)
   ! Set the machine learning model
       if (is_root_pe()) then
        call cpu_clock_begin(CS%id_set_model)
-      !  db_return_code = CS%client%set_model_from_file(CS%model_key, &
-      !  "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
-      !                                              "TORCH", device="GPU", batch_size=num_PEs())
-        db_return_code = CS%client%set_model_from_file_multigpu(CS%model_key, &
-        "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
-                                                    "TORCH",first_gpu=0,num_gpus=2,batch_size=num_PEs())
+       db_return_code = CS%client%set_model_from_file(CS%model_key, TRIM(ML_PATH) // "CNN_GPU_2X21X21X2.pt", "TORCH", device="GPU")
+        ! db_return_code = CS%client%set_model_from_file_multigpu(CS%model_key, &
+        ! "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
+        !                                             "TORCH",first_gpu=0,num_gpus=2)
         if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_model failed")
         call cpu_clock_end(CS%id_set_model)
-        ! call cpu_clock_begin(CS%id_set_script)
-        ! db_return_code = CS%client%set_script_from_file(CS%script_key, "CPU", &
-        ! "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/testNN_trace.txt")
-        ! if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_script failed")
-        ! call cpu_clock_end(CS%id_set_script)
+        call cpu_clock_begin(CS%id_set_script)
+        db_return_code = CS%client%set_script_from_file(CS%script_key, "CPU", TRIM(ML_PATH) // "testNN_trace.txt")
+        if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_script failed")
+        call cpu_clock_end(CS%id_set_script)
       endif
     endif
   
