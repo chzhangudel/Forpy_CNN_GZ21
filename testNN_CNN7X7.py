@@ -5,6 +5,9 @@ import numpy as np
 import importlib
 import math
 import time
+from torch.nn import Parameter
+
+REPO = 'subgrid'  #'gz21'
 
 # GPU setup
 args_no_cuda = False #True when manually turn off cuda
@@ -30,35 +33,44 @@ def load_paper_net(device: str = 'gpu'):
         Load the neural network from the paper
     """
     print('In load_paper_net()')
-    model_module_name = 'subgrid.models.models1'
-    model_cls_name = 'FullyCNN'
+    model_module_name = f'{REPO}.models.models1'
+    model_cls_name = 'CNN7x7'
     model_cls = load_model_cls(model_module_name, model_cls_name)
     print('After load_model_cls()')
-    net = model_cls(2, 4)
-    print('After net')
-    if device == 'cpu':
-        transformation = torch.load('/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation.pth')
-        print('After torch.load()')
-    else:
-        transformation = pickle_artifact(MODEL_RUN_ID, 'models/transformation')
-    net.final_transformation = transformation
+    net = model_cls(2,4,batch_norm=1)
+    
+    # final_transform= '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation_04292023.pth'
+    # print('After net')
+    # if device == 'cpu':
+    #     transformation = torch.load(final_transform)
+    #     print('After torch.load()')
+    # else:
+    #     transformation = pickle_artifact(MODEL_RUN_ID, 'models/transformation')
+    # net.final_transformation = transformation
     print('After transformation')
-
     # Load parameters of pre-trained model
-    print('Loading the neural net parameters')
-    # logging.info('Loading the neural net parameters')
-    # client = mlflow.tracking.MlflowClient()
     print('After mlflow.tracking.MlflowClient()')
-#    model_file = client.download_artifacts(MODEL_RUN_ID,
-#                                           'nn_weights_cpu.pth')
-    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model.pth'
+    
+    
+    # ----------------- CHANGE THIS PATH TO TRAINED MODEL ----------------- #
+    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model_cnn7x7_landmask_none.pth'
+    # ---------------------------------------------------- #
+    
+    
+    print('Loading final transformation')
+    model_module_name = f'{REPO}.models.transforms'
+    model_cls_name = 'SoftPlusTransform'
+    model_cls = load_model_cls(model_module_name, model_cls_name)
+    model_cls_name = 'PrecisionTransform'
+    model_cls1 = load_model_cls(model_module_name, model_cls_name)
+    transform = model_cls.__new__(model_cls,)
+    model_cls1.__init__(transform,)
+    state_dict = torch.load(model_file, map_location=torch.device('cpu'))
+    transform._min_value = Parameter(state_dict.pop('final_transformation._min_value'))
+    transform.indices = slice(2,4)
     print('After download_artifacts()')
-    if device == 'cpu':
-        print('Device: CPU')
-        model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/nn_weights_cpu.pth'
-        net.load_state_dict(torch.load(model_file, map_location=torch.device('cpu')))
-    else:
-        net.load_state_dict(torch.load(model_file))
+    net.load_state_dict(state_dict)
+    net.final_transformation = transform
     print(net)
     return net
 nn = load_paper_net('cpu')
@@ -70,6 +82,27 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # print('PE number is',pe_num)
    # print('PE is',pe)
    # print('size of uv',uv.shape)
+
+   #set boundary condition
+# #    print('index:', index)
+# #    print('uv shape:', np.shape(uv))
+# #    np.savetxt(f'uv{pe}.txt',(uv[0,:,:,0]))
+#    landmask = np.ones(np.shape(uv)) 
+#    halo=3
+# #    print(index)
+#    if index[0]==1:
+#        landmask[:,:halo,:,:]=np.nan
+#    if index[1]==88:
+#        landmask[:,-halo:,:,:]=np.nan
+#    if index[2]==1:
+#        landmask[:,:,:halo,:]=np.nan
+#    if index[3]==80:
+#        landmask[:,:,-halo:,:]=np.nan
+#    uv = uv*landmask
+# #    np.savetxt(f'landmask{pe}.txt',(landmask[0,:,:,0]))
+# #    import sys
+# #    sys.exit(0)
+
    #normalize the input by 10
    u = uv[0,:,:,:]*10.0
    v = uv[1,:,:,:]*10.0
@@ -121,15 +154,23 @@ def MOM6_testNN(uv,pe,pe_num,index):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
-   Sxy[2,:,:,:] = out[0,:,:,:]*scaling
-   Sxy[3,:,:,:] = out[1,:,:,:]*scaling
-   Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
-   Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+#    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
+#    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
+#    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
+#    Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+   Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
+   Sxy[2,:,:,:] = 0.0
+   Sxy[3,:,:,:] = 0.0
+   Sxy[4,:,:,:] = 0.0
+   Sxy[5,:,:,:] = 0.0
+   """
    # scaling the parameters for upper and lower layers
-#    Sxy[:,:,:,0]=Sxy[:,:,:,0]*1.3345
-#    Sxy[:,:,:,1]=Sxy[:,:,:,1]*2.2862
+   Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
+   Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
+   """
    """
    np.savetxt('Sx_mean.txt',Sxy[2,:,:,0])
    np.savetxt('Sy_mean.txt',Sxy[3,:,:,0])
@@ -148,7 +189,7 @@ def MOM6_testNN(uv,pe,pe_num,index):
 if __name__ == '__main__':
 #   start_time = time.time()
   x = np.zeros((1, 2, 24, 24)).astype(np.float32)
-  x[:,1,:12, :] = 1.0*10
+#   x[:,1,:12, :] = 1.0*10
 #   print(x[0,1,:,:])
   x = torch.from_numpy(x)
   if use_cuda:
@@ -167,5 +208,5 @@ if __name__ == '__main__':
   out = out.transpose((1,2,3,0)) # new the shape is (4,ni,nj,nk)
   dim = np.shape(out)
   scaling = 1e-7
-  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sx_mean_model0.txt',(out[0,:,:,0])*scaling)
-  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sy_mean_model0.txt',(out[1,:,:,0])*scaling)
+  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero_input/Sx_mean_model5.txt',(out[0,:,:,0])*scaling)
+  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero_input/Sy_mean_model5.txt',(out[1,:,:,0])*scaling)

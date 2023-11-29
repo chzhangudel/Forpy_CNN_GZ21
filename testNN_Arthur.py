@@ -37,7 +37,7 @@ def load_paper_net(device: str = 'gpu'):
     net = model_cls(2, 4)
     print('After net')
     if device == 'cpu':
-        transformation = torch.load('/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation.pth')
+        transformation = torch.load('/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/final_transformation_1')
         print('After torch.load()')
     else:
         transformation = pickle_artifact(MODEL_RUN_ID, 'models/transformation')
@@ -51,11 +51,11 @@ def load_paper_net(device: str = 'gpu'):
     print('After mlflow.tracking.MlflowClient()')
 #    model_file = client.download_artifacts(MODEL_RUN_ID,
 #                                           'nn_weights_cpu.pth')
-    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model.pth'
+    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/.pth'
     print('After download_artifacts()')
     if device == 'cpu':
         print('Device: CPU')
-        model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/nn_weights_cpu.pth'
+        model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model_1.pth'
         net.load_state_dict(torch.load(model_file, map_location=torch.device('cpu')))
     else:
         net.load_state_dict(torch.load(model_file))
@@ -121,15 +121,23 @@ def MOM6_testNN(uv,pe,pe_num,index):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
-   Sxy[2,:,:,:] = out[0,:,:,:]*scaling
-   Sxy[3,:,:,:] = out[1,:,:,:]*scaling
-   Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
-   Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+#    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
+#    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
+#    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
+#    Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+   Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
+   Sxy[2,:,:,:] = 0.0
+   Sxy[3,:,:,:] = 0.0
+   Sxy[4,:,:,:] = 0.0
+   Sxy[5,:,:,:] = 0.0
+   """
    # scaling the parameters for upper and lower layers
-#    Sxy[:,:,:,0]=Sxy[:,:,:,0]*1.3345
-#    Sxy[:,:,:,1]=Sxy[:,:,:,1]*2.2862
+   Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
+   Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
+   """
    """
    np.savetxt('Sx_mean.txt',Sxy[2,:,:,0])
    np.savetxt('Sy_mean.txt',Sxy[3,:,:,0])
@@ -145,27 +153,23 @@ def MOM6_testNN(uv,pe,pe_num,index):
    # print(Sxy.shape)
    return Sxy
 
-if __name__ == '__main__':
+# if __name__ == '__main__':
 #   start_time = time.time()
-  x = np.zeros((1, 2, 24, 24)).astype(np.float32)
-  x[:,1,:12, :] = 1.0*10
-#   print(x[0,1,:,:])
-  x = torch.from_numpy(x)
-  if use_cuda:
-      if not next(nn.parameters()).is_cuda:
-         gpu_id = int(pe/math.ceil(pe_num/torch.cuda.device_count()))
-         print('GPU id is:',gpu_id)
-         nn = nn.cuda(gpu_id)
-      x = x.cuda(gpu_id)
-  with torch.no_grad():
-   #    start_time1 = time.time()
-      out = nn(x)
-   #    end_time1 = time.time()
-  if use_cuda:
-      out = out.to('cpu')
-  out = out.numpy().astype(np.float64)
-  out = out.transpose((1,2,3,0)) # new the shape is (4,ni,nj,nk)
-  dim = np.shape(out)
-  scaling = 1e-7
-  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sx_mean_model0.txt',(out[0,:,:,0])*scaling)
-  np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sy_mean_model0.txt',(out[1,:,:,0])*scaling)
+#   x = np.arange(1, 1251).astype(np.float32)
+#   x = x / 100
+#   print(x[:10])
+#   x = x.reshape((1, 2, 25, 25), order='F')
+#   x = torch.tensor(x)
+#   if use_cuda:
+#       x = x.to(device)
+#   with torch.no_grad():
+#       out = nn(x)
+#   if use_cuda:
+#       out = out.to('cpu')
+#   out = out.numpy()
+#   out = out.flatten(order='F')
+#   print("BEGINNING OF PYTHON")
+#   print(out[:10])
+#   print("END OF PYTHON")
+#   end_time = time.time()
+#   print("time elapse with", device, "is", end_time-start_time, "s")

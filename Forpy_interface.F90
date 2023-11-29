@@ -51,9 +51,9 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
                                     intent(inout) :: out1      ! output variables.
   ! Local Variables for Forpy
     integer :: ierror ! return code from python interfaces
-    type(ndarray) :: in1_py,id_py,out_arr   !< variables in the form of numpy array
-    type(object)  :: obj                    !< return objects
-    type(tuple)   :: args                   !< input arguments for the Python module
+    type(ndarray) :: in1_py,id_py,lm_py,out_arr   !< variables in the form of numpy array
+    type(object)  :: obj                          !< return objects
+    type(tuple)   :: args                         !< input arguments for the Python module
     real, dimension(:,:,:,:), pointer :: out_for  !< outputs from Python module
     integer :: current_pe
     integer :: hi, hj ! temporary
@@ -86,14 +86,17 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     if (ierror/=0) then; call err_print; endif
     ierror = ndarray_create(id_py,index_global)
     if (ierror/=0) then; call err_print; endif
+    ierror = ndarray_create(lm_py,G%mask2dT)
+    if (ierror/=0) then; call err_print; endif
     
   ! Create Python Argument 
-    ierror = tuple_create(args,4)
+    ierror = tuple_create(args,5)
     if (ierror/=0) then; call err_print; endif
     ierror = args%setitem(0,in1_py)
     ierror = args%setitem(1,current_pe)
     ierror = args%setitem(2,num_PEs())
     ierror = args%setitem(3,id_py)
+    ierror = args%setitem(4,lm_py)
     if (ierror/=0) then; call err_print; endif
     
   ! Invoke Python 
@@ -110,6 +113,9 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     call obj%destroy
     call args%destroy
 
+    ! write(*,*) "out1 size", size(out1,1), size(out1,2),size(out1,3),size(out1,4)
+    ! write(*,*) "out_for size", size(out_for,1), size(out_for,2),size(out_for,3),size(out_for,4)
+    ! write(*,*) out_for(1,1,1,1)
   ! find the margin size (if order='C')
     hi = (size(out1,2) - size(out_for,3))/2
     hj = (size(out1,3) - size(out_for,2))/2

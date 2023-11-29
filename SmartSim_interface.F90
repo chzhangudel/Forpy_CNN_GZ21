@@ -7,6 +7,7 @@ use MOM_grid,                  only : ocean_grid_type
 use MOM_error_handler,         only : MOM_error, FATAL,NOTE, is_root_pe
 use MOM_cpu_clock,             only : cpu_clock_id, cpu_clock_begin, cpu_clock_end, CLOCK_ROUTINE
 use MOM_database_comms,        only : dbclient_type, dbcomms_CS_type
+use MOM_coms_infra,            only : sync_PEs
 
 
 implicit none; private
@@ -66,19 +67,19 @@ subroutine smartsim_run_python_init(CS,python_dir,python_file)
   ! Set the machine learning model
       if (is_root_pe()) then
        call cpu_clock_begin(CS%id_set_model)
-       db_return_code = CS%client%set_model_from_file(CS%model_key, &
-       "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
-                                                   "TORCH", device="GPU")
-        ! db_return_code = CS%client%set_model_from_file_multigpu(CS%model_key, &
-        ! "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
-        !                                             "TORCH",first_gpu=0,num_gpus=2)
+      !  db_return_code = CS%client%set_model_from_file(CS%model_key, &
+      !  "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
+      !                                              "TORCH", device="GPU", batch_size=num_PEs())
+        db_return_code = CS%client%set_model_from_file_multigpu(CS%model_key, &
+        "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/CNN_GPU.pt", &
+                                                    "TORCH",first_gpu=0,num_gpus=2,batch_size=num_PEs())
         if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_model failed")
         call cpu_clock_end(CS%id_set_model)
-        call cpu_clock_begin(CS%id_set_script)
-        db_return_code = CS%client%set_script_from_file(CS%script_key, "CPU", &
-        "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/testNN_trace.txt")
-        if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_script failed")
-        call cpu_clock_end(CS%id_set_script)
+        ! call cpu_clock_begin(CS%id_set_script)
+        ! db_return_code = CS%client%set_script_from_file(CS%script_key, "CPU", &
+        ! "/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/testNN_trace.txt")
+        ! if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "SmartSim: set_script failed")
+        ! call cpu_clock_end(CS%id_set_script)
       endif
     endif
   
@@ -90,22 +91,26 @@ subroutine smartsim_run_python(in1, out1, CS, TopLayer, CNN_HALO_SIZE)
   ! Local Variables
     logical, intent(in) :: TopLayer             !< If true, only top layer is used.
     integer, intent(in) :: CNN_HALO_SIZE        !< Halo size at each side of subdomains
-    real, dimension(:,:,:,:), &
-                                    intent(in) :: in1     ! input variables.
-    real, dimension(:,:,:,:), &
-                                    intent(inout) :: out1      ! output variables.
+    real, dimension(:,:,:,:),       intent(in)    :: in1       ! input variables.
+    real, dimension(:,:,:,:),       intent(inout) :: out1      ! output variables.
   ! Local Variables for smartsim
     integer :: ierror ! return code from python interfaces
+    real(kind=real32), dimension(size(in1,4),2,size(in1,2),size(in1,3)) &
+                                                 :: cnn_in     ! input variables.
+    real(kind=real32), dimension(size(in1,4), 4,&
+                                 size(in1,2)-CNN_HALO_SIZE*2, &
+                                 size(in1,3)-CNN_HALO_SIZE*2) &
+                                                 :: cnn_out    ! output variables.
     real(kind=real32), dimension(6,size(in1,2)-CNN_HALO_SIZE*2, &
                                    size(in1,3)-CNN_HALO_SIZE*2, &
-                                   size(in1,4)) :: out_for  !< outputs from Python module
+                                   size(in1,4))  :: out_for    !< outputs from Python module
     
     integer :: db_return_code = 0
     integer :: current_pe
     integer :: hi, hj ! temporary
     integer :: i, j, k, l
-    integer :: nztemp, out_num
-    integer :: index_global(4) ! absolute begin and end index in the subdomain
+    integer :: nztemp
+    real    :: scaling = 1e-7 ! scanling number for CNN output
 
     character(len=255), dimension(1) :: input
     character(len=255), dimension(1) :: model_input
@@ -123,48 +128,78 @@ subroutine smartsim_run_python(in1, out1, CS, TopLayer, CNN_HALO_SIZE)
       nztemp = size(in1,4)
     endif
 
+    ! script 1
+    call cpu_clock_begin(CS%id_run_script1)
+    do k=1,size(cnn_in,1)
+      do j=1,size(cnn_in,4) ; do i=1,size(cnn_in,3); do l=1,size(cnn_in,2)
+        cnn_in(k,l,i,j) = in1(l,i,j,k)*10.0
+      enddo ; enddo ; enddo
+    enddo
+    call cpu_clock_end(CS%id_run_script1)
+
   ! Put arrays into the database  
     call cpu_clock_begin(CS%id_put_tensor)
     if (TopLayer) then
-      db_return_code = CS%client%put_tensor("input"//CS%key_suffix, &
-      in1(:,:,:,1), shape(in1(:,:,:,1))) + db_return_code
+      ! db_return_code = CS%client%put_tensor("input"//CS%key_suffix, &
+      ! in1(:,:,:,1), shape(in1(:,:,:,1))) + db_return_code
+      db_return_code = CS%client%put_tensor("model_input"//CS%key_suffix, &
+                                            cnn_in(1,:,:,:), shape(cnn_in(1,:,:,:))) + db_return_code
     else
-      db_return_code = CS%client%put_tensor("input"//CS%key_suffix, in1, shape(in1)) + db_return_code
+      ! db_return_code = CS%client%put_tensor("input"//CS%key_suffix, in1, shape(in1)) + db_return_code
+      db_return_code = CS%client%put_tensor("model_input"//CS%key_suffix, &
+                                             cnn_in, shape(cnn_in)) + db_return_code
     endif
-    ! db_return_code = CS%client%put_tensor("PE"//CS%key_suffix, current_pe, [1]) + db_return_code
-    ! db_return_code = CS%client%put_tensor("PEs"//CS%key_suffix, num_PEs, [1]) + db_return_code
-    ! db_return_code = CS%client%put_tensor("domain_id"//CS%key_suffix, index_global, shape(index_global)) + db_return_code
+    call sync_PEs()
     if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Putting metadata into the database failed")
     call cpu_clock_end(CS%id_put_tensor)
     
   ! Run torchscript
-    input(1) = "input"//CS%key_suffix
+    ! input(1) = "input"//CS%key_suffix
     model_input(1) = "model_input"//CS%key_suffix
     model_output(1) = "model_output"//CS%key_suffix
-    output(1) = "output"//CS%key_suffix
+    ! output(1) = "output"//CS%key_suffix
     ! script 1
-    call cpu_clock_begin(CS%id_run_script1)
-    db_return_code = CS%client%run_script(CS%script_key, "pre_process", input, model_input)
-    if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Run script1 in the database failed")
-    call cpu_clock_end(CS%id_run_script1)
+    ! call cpu_clock_begin(CS%id_run_script1)
+    ! db_return_code = CS%client%run_script(CS%script_key, "pre_process", input, model_input)
+    ! if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Run script1 in the database failed")
+    ! call cpu_clock_end(CS%id_run_script1)
     ! ML model
     call cpu_clock_begin(CS%id_run_model)
-    db_return_code = CS%client%run_model(CS%model_key, model_input, model_output)
-    ! db_return_code = CS%client%run_model_multigpu(CS%model_key, model_input, model_output,offset=PE_here(),first_gpu=0,num_gpus=2)
+    ! db_return_code = CS%client%run_model(CS%model_key, model_input, model_output)
+    db_return_code = CS%client%run_model_multigpu(CS%model_key, model_input, model_output,offset=PE_here(),first_gpu=0,num_gpus=2)
+    call sync_PEs()
     if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Run model in the database failed")
     call cpu_clock_end(CS%id_run_model)
     ! script 2
-    call cpu_clock_begin(CS%id_run_script2)
-    db_return_code = CS%client%run_script(CS%script_key, "post_process", model_output, output)
-    if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Run script2 in the database failed")
-    call cpu_clock_end(CS%id_run_script2)
+    ! call cpu_clock_begin(CS%id_run_script2)
+    ! db_return_code = CS%client%run_script(CS%script_key, "post_process", model_output, output)
+    ! if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "Run script2 in the database failed")
+    ! call cpu_clock_end(CS%id_run_script2)
 
   ! extract the output from Python
     call cpu_clock_begin(CS%id_unpack_tensor)
-    db_return_code = CS%client%unpack_tensor(output(1), out_for, shape(out_for))
+    ! db_return_code = CS%client%unpack_tensor(output(1), out_for, shape(out_for))
+    db_return_code = CS%client%unpack_tensor(model_output(1), cnn_out, shape(cnn_out))
     if (CS%client%SR_error_parser(db_return_code)) call MOM_error(FATAL, "unpack tensor from the database failed")
+    call sync_PEs()
     call cpu_clock_end(CS%id_unpack_tensor)
     ! write(*,*) "output shape:", size(out_for)
+
+    ! script 2
+    call cpu_clock_begin(CS%id_run_script2)
+    do k=1,size(out_for,4) ; do j=1,size(out_for,3) ; do i=1,size(out_for,2)
+        out_for(1,i,j,k) = cnn_out(1,i,j,k)*scaling !+ epsilon_x/cnn_out(3,i,j,k)*scaling
+        out_for(2,i,j,k) = cnn_out(3,i,j,k)*scaling !+ epsilon_x/cnn_out(4,i,j,k)*scaling
+        out_for(3,i,j,k) = cnn_out(1,i,j,k)*scaling
+        out_for(4,i,j,k) = cnn_out(3,i,j,k)*scaling
+        ! out_for(1,i,j,k) = 0.0
+        ! out_for(2,i,j,k) = 0.0
+        ! out_for(3,i,j,k) = 0.0
+        ! out_for(4,i,j,k) = 0.0
+        out_for(5,i,j,k) = 0.0
+        out_for(6,i,j,k) = 0.0
+    enddo ; enddo ; enddo
+    call cpu_clock_end(CS%id_run_script2)
 
   ! find the margin size (if order='F')
     hi = (size(out1,2) - size(out_for,2))/2
