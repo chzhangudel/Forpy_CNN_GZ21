@@ -6,7 +6,7 @@ import importlib
 import math
 import time
 
-replicate = True
+replicate = False
 mask = True
 
 # GPU setup
@@ -62,6 +62,7 @@ def load_paper_net(device: str = 'gpu'):
         state_dict = torch.load(model_file, map_location=torch.device('cpu'))
     else:
         state_dict = torch.load(model_file)
+    print('state_dict1',state_dict.keys())
     #change the key name->
     print(model_cls_name)
     if model_cls_name.endswith("_BC"):
@@ -75,7 +76,7 @@ def load_paper_net(device: str = 'gpu'):
             new_state_dict[name] = v
             i = i+1
         state_dict = new_state_dict
-        # print(state_dict.keys())
+        print('state_dict2',state_dict.keys())
     #<-
     net.load_state_dict(state_dict)
     print(net)
@@ -112,15 +113,20 @@ def expand_matrix(original_matrix, margin):
 def MOM6_testNN(uv,pe,pe_num,index,landmask0): 
    global nn,gpu_id,istep,matrix_dict
    istep=istep+1
+   if uv.ndim==3:
+      uv = uv[:,:,:,np.newaxis]
 #    start_time = time.time()
    # print('PE number is',pe_num)
    # print('PE is',pe)
 #    print('uv shape:', np.shape(uv))
+#    print('landmask shape:', np.shape(landmask0))
 #    np.savetxt(f'uv{pe}.txt',(uv[0,:,:,0]))
+#    np.savetxt(f'landmask{pe}.txt',(landmask0))
 
    #set boundary condition
    halo=10
-   landmask0 = expand_matrix(landmask0, 6)
+   if np.shape(landmask0)[0] != np.shape(uv)[1]:
+       landmask0 = expand_matrix(landmask0, (np.shape(uv)[1]-np.shape(landmask0)[0]))
    landmask = np.ones(np.shape(uv)).astype(np.float32)
    for c in range(uv.shape[0]):
        for k in range(uv.shape[3]):
@@ -156,6 +162,8 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    #calculate sparse matrix when replicate=True ->
    if mask is True:
         maskn = torch.from_numpy(landmask.transpose((3,0,1,2)))
+   else:
+        maskn = None
         # matrix_dict = matrix_create(mask)
    # <-
    if use_cuda:
@@ -164,7 +172,8 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
           print('GPU id is:',gpu_id)
           nn = nn.cuda(gpu_id)
        x = x.cuda(gpu_id)
-       maskn = maskn.cuda(gpu_id)
+       if mask is True:
+          maskn = maskn.cuda(gpu_id) 
    else:
        gpu_id = 0
 
@@ -176,7 +185,6 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    if use_cuda:
        out = out.to('cpu')
    out = out.numpy().astype(np.float64)
-   out = np.nan_to_num(out, nan=0.0)
    # At this point, python out shape is (nk,4,ni,nj)
    # Comment-out is tranferring arraies into F order
    """
@@ -206,23 +214,23 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
-#    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
-#    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
-#    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
-#    Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
-   Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
-   Sxy[2,:,:,:] = 0.0
-   Sxy[3,:,:,:] = 0.0
-   Sxy[4,:,:,:] = 0.0
-   Sxy[5,:,:,:] = 0.0
-   """
+   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+   Sxy[2,:,:,:] = out[0,:,:,:]*scaling
+   Sxy[3,:,:,:] = out[1,:,:,:]*scaling
+   Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
+   Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
+#    Sxy[2,:,:,:] = 0.0
+#    Sxy[3,:,:,:] = 0.0
+#    Sxy[4,:,:,:] = 0.0
+#    Sxy[5,:,:,:] = 0.0
    # scaling the parameters for upper and lower layers
-   Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
-   Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
-   """
+   Sxy=Sxy*1.0
+#    Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
+#    Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
+
 #    if istep == 1:
 #      np.savetxt(f'Sx_mean{pe}.txt',(Sxy[0,:,:,0]))
 #      import sys
@@ -253,7 +261,7 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    return Sxy
 
 if __name__ == '__main__':
-#   start_time = time.time()
+  start_time = time.time()
   x = np.zeros((1, 2, 24, 24)).astype(np.float32)
   x[:,1,:12, :] = 1.0*10
 #   print(x[0,1,:,:])
@@ -276,3 +284,48 @@ if __name__ == '__main__':
   scaling = 1e-7
   np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sx_mean_model0.txt',(out[0,:,:,0])*scaling)
   np.savetxt('/scratch/cimes/cz3321/MOM6/experiments/double_gyre_nonensemble/postprocess/zero-one_input/Sy_mean_model0.txt',(out[1,:,:,0])*scaling)
+
+"""
+input_ = torch.rand(2,2,22,22)
+# nn._final_transformation = lambda x: x
+# nn2._final_transformation = lambda x: x
+output = nn(input_)
+output2 = nn2(input_)
+# a0=nn2[0](input_)
+# b0=nn.conv1(input_)
+# print(torch.all(a0==b0))
+# a1=nn2[2](a0)
+# b1=nn.conv2(b0)
+# print(torch.all(a1==b1))
+# a2=nn2[4](a1)
+# b2=nn.conv3(b1)
+# print(torch.all(a2==b2))
+# a3=nn2[6](a2)
+# b3=nn.conv4(b2)
+# print(torch.all(a3==b3))
+# a4=nn2[8](a3)
+# b4=nn.conv5(b3)
+# print(torch.all(a4==b4))
+# a5=nn2[10](a4)
+# b5=nn.conv6(b4)
+# print(torch.all(a5==b5))
+# a6=nn2[12](a5)
+# b6=nn.conv7(b5)
+# print(torch.all(a6==b6))
+# a7=nn2[14](a6)
+# b7=nn.conv8(b6)
+# print(torch.all(a7==b7))
+
+# print(torch.all(nn.final_transformation(a7)  ==  nn2.final_transformation(b7)))
+# print(nn.final_transformation.__dict__)
+# print(nn2.final_transformation.__dict__)
+# print(output[0])
+# print(output2)
+df= (output[0]  ==  output2)
+print(torch.all(df))
+# false_positions = torch.where(df == False)
+# print(false_positions)
+# print(df)
+# x=torch.rand(5,4,32,32)
+# print(torch.all(nn.final_transformation(x)  ==  nn2.final_transformation(x)))
+"""

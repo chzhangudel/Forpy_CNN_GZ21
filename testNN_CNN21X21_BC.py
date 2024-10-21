@@ -10,7 +10,7 @@ from torch.nn import Parameter
 REPO = 'subgrid'  #'gz21'
 replicate = True
 mask = True
-batch_norm = 1
+batch_norm = 0
 
 # GPU setup
 args_no_cuda = False #True when manually turn off cuda
@@ -56,7 +56,7 @@ def load_paper_net(device: str = 'gpu'):
     
     
     # ----------------- CHANGE THIS PATH TO TRAINED MODEL ----------------- #
-    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/trained_model_cnn21x21_landmask_none.pth'
+    model_file = '/scratch/cimes/cz3321/MOM6/MOM6-examples/src/MOM6/config_src/external/ML_Forpy/Forpy_CNN_GZ21/cem_4_four_regions_fixed_branch.pth'
     # ---------------------------------------------------- #
     
     
@@ -69,8 +69,8 @@ def load_paper_net(device: str = 'gpu'):
     transform = model_cls.__new__(model_cls,)
     model_cls1.__init__(transform,)
     state_dict = torch.load(model_file, map_location=torch.device('cpu'))
-    # print(state_dict.keys())
-    # print(net.state_dict().keys())
+    print('file weights:',state_dict.keys())
+    print('model weights:',net.state_dict().keys())
     transform._min_value = Parameter(state_dict.pop('final_transformation._min_value'))
     transform.indices = slice(2,4)
     print('After download_artifacts()')
@@ -165,6 +165,8 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    if mask is True:
         maskn = torch.from_numpy(landmask.transpose((3,0,1,2)))
         # matrix_dict = matrix_create(mask)
+   else:
+       maskn = None
    # <-
    if use_cuda:
        if not next(nn.parameters()).is_cuda:
@@ -172,7 +174,8 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
           print('GPU id is:',gpu_id)
           nn = nn.cuda(gpu_id)
        x = x.cuda(gpu_id)
-       maskn = maskn.cuda(gpu_id)
+       if mask is True:
+          maskn = maskn.cuda(gpu_id)
    else:
        gpu_id = 0
 
@@ -213,18 +216,18 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
-#    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
-#    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
-#    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
-#    Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
-   Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
-   Sxy[2,:,:,:] = 0.0
-   Sxy[3,:,:,:] = 0.0
-   Sxy[4,:,:,:] = 0.0
-   Sxy[5,:,:,:] = 0.0
+   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+   Sxy[2,:,:,:] = out[0,:,:,:]*scaling
+   Sxy[3,:,:,:] = out[1,:,:,:]*scaling
+   Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
+   Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
+#    Sxy[2,:,:,:] = 0.0
+#    Sxy[3,:,:,:] = 0.0
+#    Sxy[4,:,:,:] = 0.0
+#    Sxy[5,:,:,:] = 0.0
    """
    # scaling the parameters for upper and lower layers
    Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
@@ -256,7 +259,7 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
 if __name__ == '__main__':
 #   start_time = time.time()
   x = np.ones((1, 2, 26, 28)).astype(np.float32)
-#   x = np.random.rand(1, 2, 10, 12).astype(np.float32)
+#   x = np.random.rand(1, 2, 26, 28).astype(np.float32)
 #   print(x.shape[3])
 #   for i in range(x.shape[2]):
 #     for j in range(x.shape[3]):
@@ -301,7 +304,7 @@ if __name__ == '__main__':
       x = x.cuda(gpu_id)
   with torch.no_grad():
    #    start_time1 = time.time()
-      out, matrix_dict = nn(x,maskn=mask,replicate=True, matrix_dict=matrix_dict)
+      out, matrix_dict = nn(x,maskn=mask,replicate=False, matrix_dict=matrix_dict)
    #    end_time1 = time.time()
   if use_cuda:
       out = out.to('cpu')

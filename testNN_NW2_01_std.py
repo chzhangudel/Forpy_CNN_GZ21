@@ -209,20 +209,20 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    Sxy[1,:,:,:] = (epsilon_y/out[3,:,:,:])*scaling
    """
    # full output
-#    Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
-#    Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
-#    Sxy[2,:,:,:] = out[0,:,:,:]*scaling
-#    Sxy[3,:,:,:] = out[1,:,:,:]*scaling
-#    Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
-#    Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
-   Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
-   Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
-   Sxy[2,:,:,:] = 0.0
-   Sxy[3,:,:,:] = 0.0
-   Sxy[4,:,:,:] = 0.0
-   Sxy[5,:,:,:] = 0.0
+   Sxy[0,:,:,:] = (out[0,:,:,:] + epsilon_x/out[2,:,:,:])*scaling
+   Sxy[1,:,:,:] = (out[1,:,:,:] + epsilon_y/out[3,:,:,:])*scaling
+   Sxy[2,:,:,:] = out[0,:,:,:]*scaling
+   Sxy[3,:,:,:] = out[1,:,:,:]*scaling
+   Sxy[4,:,:,:] = 1.0/out[2,:,:,:]*scaling
+   Sxy[5,:,:,:] = 1.0/out[3,:,:,:]*scaling
+#    Sxy[0,:,:,:] = (out[0,:,:,:] )*scaling
+#    Sxy[1,:,:,:] = (out[1,:,:,:] )*scaling
+#    Sxy[2,:,:,:] = 0.0
+#    Sxy[3,:,:,:] = 0.0
+#    Sxy[4,:,:,:] = 0.0
+#    Sxy[5,:,:,:] = 0.0
    # scaling the parameters for upper and lower layers
-   Sxy=Sxy*0.15
+   Sxy=Sxy*0.1
 #    Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
 #    Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
    

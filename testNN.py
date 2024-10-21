@@ -64,8 +64,10 @@ def load_paper_net(device: str = 'gpu'):
 nn = load_paper_net('cpu')
 nn.eval()
 
-def MOM6_testNN(uv,pe,pe_num,index): 
+def MOM6_testNN(uv,pe,pe_num,index,landmask0): 
    global nn,gpu_id
+   if uv.ndim==3:
+      uv = uv[:,:,:,np.newaxis]
 #    start_time = time.time()
    # print('PE number is',pe_num)
    # print('PE is',pe)

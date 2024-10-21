@@ -40,15 +40,15 @@ subroutine forpy_run_python_init(CS,python_dir,python_file)
 end subroutine forpy_run_python_init
 
 !> !> Send variables to a python script and output the results
-subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
+subroutine forpy_run_python(in1, out1, in_lm, index_global, CS)
     type(python_interface),        intent(in)  :: CS     !< Python interface object
-    type(ocean_grid_type),         intent(in)    :: G     !< The ocean's grid structure.
+    ! type(ocean_grid_type),         intent(in)    :: G     !< The ocean's grid structure.
   ! Local Variables
-    logical, intent(in) :: TopLayer             !< If true, only top layer is used.
-    real, dimension(:,:,:,:), &
-                                    intent(in) :: in1     ! input variables.
-    real, dimension(:,:,:,:), &
-                                    intent(inout) :: out1      ! output variables.
+    real, dimension(:,:,:,:),  intent(in) :: in1       ! input variables.
+    real, dimension(:,:,:,:),  intent(inout) :: out1   ! output variables.
+    real, dimension(:,:),      intent(in) :: in_lm     ! input variable of landmask.
+    integer, intent(in) :: index_global(4) ! absolute begin and end index in the subdomain
+  
   ! Local Variables for Forpy
     integer :: ierror ! return code from python interfaces
     type(ndarray) :: in1_py,id_py,lm_py,out_arr   !< variables in the form of numpy array
@@ -59,34 +59,25 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     integer :: hi, hj ! temporary
     integer :: i, j, k, l
     integer :: nztemp, out_num
-    integer :: index_global(4) ! absolute begin and end index in the subdomain
+    ! integer :: index_global(4) ! absolute begin and end index in the subdomain
 
     CHARACTER(LEN=80)::FILE_NAME='FP'
     CHARACTER(LEN=80)::TMP_NAME=' '
 
-    index_global(1) = G%isc+G%idg_offset
-    index_global(2) = G%iec+G%idg_offset
-    index_global(3) = G%jsc+G%jdg_offset
-    index_global(4) = G%jec+G%jdg_offset
+    ! index_global(1) = G%isc+G%idg_offset
+    ! index_global(2) = G%iec+G%idg_offset
+    ! index_global(3) = G%jsc+G%jdg_offset
+    ! index_global(4) = G%jec+G%jdg_offset
 
     current_pe = PE_here()
-
-    if (TopLayer) then
-      nztemp = 1
-    else
-      nztemp = size(in1,4)
-    endif
+    nztemp = size(in1,4)
 
   ! Covert input into Forpy Numpy Arrays 
-    if (TopLayer) then
-      ierror = ndarray_create(in1_py, in1(:,:,:,1))
-    else
-      ierror = ndarray_create(in1_py, in1)
-    endif
+    ierror = ndarray_create(in1_py, in1)
     if (ierror/=0) then; call err_print; endif
     ierror = ndarray_create(id_py,index_global)
     if (ierror/=0) then; call err_print; endif
-    ierror = ndarray_create(lm_py,G%mask2dT)
+    ierror = ndarray_create(lm_py,in_lm)
     if (ierror/=0) then; call err_print; endif
     
   ! Create Python Argument 
@@ -106,12 +97,6 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
     if (ierror/=0) then; call err_print; endif
     ierror = out_arr%get_data(out_for, order='C')
     if (ierror/=0) then; call err_print; endif
-    
-  ! Destroy Objects
-    call in1_py%destroy
-    call out_arr%destroy
-    call obj%destroy
-    call args%destroy
 
     ! write(*,*) "out1 size", size(out1,1), size(out1,2),size(out1,3),size(out1,4)
     ! write(*,*) "out_for size", size(out_for,1), size(out_for,2),size(out_for,3),size(out_for,4)
@@ -129,6 +114,14 @@ subroutine forpy_run_python(in1, out1, CS, TopLayer, G)
         ! out1(l,i+hi,j+hj,k) = out_for(l,i,j,k) ! if order='F'
       enddo ; enddo ; enddo
     enddo
+
+  ! Destroy Objects
+    call in1_py%destroy
+    call id_py%destroy
+    call lm_py%destroy
+    call out_arr%destroy
+    call obj%destroy
+    call args%destroy
   
     ! if (is_root_pe()) then
     !   TMP_NAME = 'out_for_Sxm_'//TRIM(FILE_NAME)

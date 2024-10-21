@@ -222,7 +222,7 @@ def MOM6_testNN(uv,pe,pe_num,index,landmask0):
    Sxy[4,:,:,:] = 0.0
    Sxy[5,:,:,:] = 0.0
    # scaling the parameters for upper and lower layers
-   Sxy=Sxy*0.15
+   Sxy=Sxy*0.02
 #    Sxy[:,:,:,0]=Sxy[:,:,:,0]*0.8
 #    Sxy[:,:,:,1]=Sxy[:,:,:,1]*1.5
    
